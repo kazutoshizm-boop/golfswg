@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ゴルフスイング AI自動同期比較ツール</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- MediaPipe Pose via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <style>
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        canvas.overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen pb-12 font-sans">
+    <header class="bg-slate-800 border-b border-slate-700 py-4 px-4 sticky top-0 z-50 shadow-lg">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <i data-lucide="video" class="w-6 h-6 text-emerald-400"></i>
+                <h1 class="text-lg md:text-xl font-bold bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
+                    SwingSync AI
+                </h1>
+            </div>
+            <span class="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full font-medium">
+                完全ローカル・ブラウザAI動作
+            </span>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Video 1 Input -->
+            <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 shadow-sm">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-sm font-semibold text-emerald-400 flex items-center gap-1.5">
+                        <i data-lucide="video" class="w-4 h-4"></i> 動画 A（参照・自分）
+                    </label>
+                    <span id="status-1" class="text-xs text-slate-400">未読み込み</span>
+                </div>
+                <input type="file" id="file-1" accept="video/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer">
+                <!-- Progress Bar -->
+                <div id="progress-container-1" class="hidden mt-3">
+                    <div class="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>AI分析中...</span>
+                        <span id="progress-text-1">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                        <div id="progress-bar-1" class="bg-emerald-500 h-full w-0 transition-all duration-150"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video 2 Input -->
+            <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 shadow-sm">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-sm font-semibold text-teal-400 flex items-center gap-1.5">
+                        <i data-lucide="video" class="w-4 h-4"></i> 動画 B（比較・プロなど）
+                    </label>
+                    <span id="status-2" class="text-xs text-slate-400">未読み込み</span>
+                </div>
+                <input type="file" id="file-2" accept="video/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-500 cursor-pointer">
+                <!-- Progress Bar -->
+                <div id="progress-container-2" class="hidden mt-3">
+                    <div class="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>AI分析中...</span>
+                        <span id="progress-text-2">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                        <div id="progress-bar-2" class="bg-teal-500 h-full w-0 transition-all duration-150"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="phase-controls" class="bg-slate-800 border border-slate-700 rounded-xl p-4 hidden">
+            <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i> AI同期フェーズジャンプ
+            </h2>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button id="btn-takeback" class="py-2.5 px-3 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1.5 shadow-sm">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-blue-400"></i> テイクバック
+                </button>
+                <button id="btn-top" class="py-2.5 px-3 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1.5 shadow-sm">
+                    <i data-lucide="arrow-up-circle" class="w-3.5 h-3.5 text-amber-400"></i> トップ (AI判定)
+                </button>
+                <button id="btn-impact" class="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-lg text-xs font-semibold text-white transition flex items-center justify-center gap-1.5 shadow-md">
+                    <i data-lucide="target" class="w-3.5 h-3.5 text-emerald-200"></i> インパクト (同期基準)
+                </button>
+                <button id="btn-follow" class="py-2.5 px-3 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1.5 shadow-sm">
+                    <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-purple-400"></i> フォロー
+                </button>
+            </div>
+        </section>
+
+        <section class="space-y-4">
+            <!-- Video Player 1 -->
+            <div class="video-container aspect-video border border-slate-700 shadow-lg">
+                <video id="video-1" playsinline class="w-full h-full object-contain"></video>
+                <canvas id="overlay-1" class="overlay"></canvas>
+                <div class="absolute top-3 left-3 bg-slate-900/80 border border-slate-700/80 text-emerald-400 text-xs px-2.5 py-1 rounded-md backdrop-blur-sm font-semibold">
+                    動画 A
+                </div>
+            </div>
+
+            <!-- Video Player 2 -->
+            <div class="video-container aspect-video border border-slate-700 shadow-lg">
+                <video id="video-2" playsinline class="w-full h-full object-contain"></video>
+                <canvas id="overlay-2" class="overlay"></canvas>
+                <div class="absolute top-3 left-3 bg-slate-900/80 border border-slate-700/80 text-teal-400 text-xs px-2.5 py-1 rounded-md backdrop-blur-sm font-semibold">
+                    動画 B
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-4 shadow-lg">
+            <!-- Playback Bar -->
+            <div class="flex items-center gap-3">
+                <button id="btn-play-pause" class="p-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition font-bold flex items-center justify-center shadow-lg active:scale-95">
+                    <i data-lucide="play" id="icon-play" class="w-5 h-5 fill-current"></i>
+                    <i data-lucide="pause" id="icon-pause" class="w-5 h-5 fill-current hidden"></i>
+                </button>
+
+                <!-- Seek Slider -->
+                <div class="flex-1">
+                    <input type="range" id="sync-slider" min="0" max="100" value="0" step="0.1" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                </div>
+
+                <span id="time-display" class="text-xs font-mono text-slate-400 w-16 text-right">00:00</span>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-700/60">
+                <!-- Speed Controls -->
+                <div class="flex items-center gap-1.5">
+                    <span class="text-xs text-slate-400 mr-1 font-medium">再生速度:</span>
+                    <button class="btn-speed text-xs px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-md font-medium text-slate-300 transition" data-speed="0.25">0.25x</button>
+                    <button class="btn-speed text-xs px-2.5 py-1 bg-emerald-600 rounded-md font-medium text-white transition" data-speed="0.5">0.5x</button>
+                    <button class="btn-speed text-xs px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-md font-medium text-slate-300 transition" data-speed="1.0">1.0x</button>
+                </div>
+
+                <!-- Frame Step & Guides -->
+                <div class="flex items-center gap-2">
+                    <button id="btn-step-prev" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 text-xs font-semibold flex items-center gap-1 transition" title="-1コマ">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </button>
+                    <button id="btn-step-next" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 text-xs font-semibold flex items-center gap-1 transition" title="+1コマ">
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                    <button id="btn-toggle-grid" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 text-xs font-medium flex items-center gap-1.5 transition">
+                        <i data-lucide="grid" class="w-3.5 h-3.5 text-amber-400"></i> グリッド線
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        const state = {
+            video1: { file: null, element: document.getElementById('video-1'), topTime: 0, impactTime: 0, isAnalyzed: false },
+            video2: { file: null, element: document.getElementById('video-2'), topTime: 0, impactTime: 0, isAnalyzed: false },
+            playbackRate: 0.5,
+            isPlaying: false,
+            showGrid: false,
+            syncOffset: 0
+        };
+
+        const elements = {
+            file1: document.getElementById('file-1'),
+            file2: document.getElementById('file-2'),
+            status1: document.getElementById('status-1'),
+            status2: document.getElementById('status-2'),
+            progContainer1: document.getElementById('progress-container-1'),
+            progContainer2: document.getElementById('progress-container-2'),
+            progBar1: document.getElementById('progress-bar-1'),
+            progBar2: document.getElementById('progress-bar-2'),
+            progText1: document.getElementById('progress-text-1'),
+            progText2: document.getElementById('progress-text-2'),
+            phaseControls: document.getElementById('phase-controls'),
+            btnPlayPause: document.getElementById('btn-play-pause'),
+            iconPlay: document.getElementById('icon-play'),
+            iconPause: document.getElementById('icon-pause'),
+            syncSlider: document.getElementById('sync-slider'),
+            timeDisplay: document.getElementById('time-display'),
+            overlay1: document.getElementById('overlay-1'),
+            overlay2: document.getElementById('overlay-2'),
+            btnGrid: document.getElementById('btn-toggle-grid')
+        };
+
+        let poseAnalyzer = null;
+        function initPoseAnalyzer() {
+            poseAnalyzer = new Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            });
+            poseAnalyzer.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+        }
+        initPoseAnalyzer();
+
+        elements.file1.addEventListener('change', (e) => handleFileSelect(e, 1));
+        elements.file2.addEventListener('change', (e) => handleFileSelect(e, 2));
+
+        async function handleFileSelect(event, videoNum) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const vState = videoNum === 1 ? state.video1 : state.video2;
+            const statusEl = videoNum === 1 ? elements.status1 : elements.status2;
+            const progContainer = videoNum === 1 ? elements.progContainer1 : elements.progContainer2;
+
+            vState.file = file;
+            vState.element.src = URL.createObjectURL(file);
+            statusEl.innerText = "動画読み込み完了。解析準備中...";
+            statusEl.className = "text-xs text-amber-400 font-medium";
+
+            vState.element.onloadeddata = async () => {
+                progContainer.classList.remove('hidden');
+                await analyzeVideoSwing(vState, videoNum);
+            };
+        }
+
+        async function analyzeVideoSwing(vState, videoNum) {
+            const video = vState.element;
+            const duration = video.duration;
+            const fps = 20;
+            const step = 1 / fps;
+
+            const statusEl = videoNum === 1 ? elements.status1 : elements.status2;
+            const progBar = videoNum === 1 ? elements.progBar1 : elements.progBar2;
+            const progText = videoNum === 1 ? elements.progText1 : elements.progText2;
+
+            statusEl.innerText = "AIが手首・関節の位置をスキャン中...";
+
+            const wristData = [];
+            const canvas = document.createElement('canvas');
+            canvas.width = 320;
+            canvas.height = 180;
+            const ctx = canvas.getContext('2d');
+
+            let currentFrameTime = 0;
+
+            return new Promise((resolve) => {
+                poseAnalyzer.onResults((results) => {
+                    if (results.poseLandmarks) {
+                        const lw = results.poseLandmarks[15];
+                        const rw = results.poseLandmarks[16];
+                        if (lw && rw) {
+                            const avgY = (lw.y + rw.y) / 2;
+                            wristData.push({ time: currentFrameTime, y: avgY });
+                        }
+                    }
+                });
+
+                async function processNextFrame() {
+                    if (currentFrameTime >= duration) {
+                        calculateKeyframes(vState, wristData);
+                        vState.isAnalyzed = true;
+
+                        statusEl.innerText = `解析完了 (トップ: ${vState.topTime.toFixed(2)}s, インパクト: ${vState.impactTime.toFixed(2)}s)`;
+                        statusEl.className = "text-xs text-emerald-400 font-semibold";
+
+                        checkBothAnalyzed();
+                        resolve();
+                        return;
+                    }
+
+                    video.currentTime = currentFrameTime;
+                    await new Promise(r => video.onseeked = r);
+
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    await poseAnalyzer.send({ image: canvas });
+
+                    const percent = Math.min(100, Math.round((currentFrameTime / duration) * 100));
+                    progBar.style.width = `${percent}%`;
+                    progText.innerText = `${percent}%`;
+
+                    currentFrameTime += step;
+                    setTimeout(processNextFrame, 10);
+                }
+
+                processNextFrame();
+            });
+        }
+
+        function calculateKeyframes(vState, wristData) {
+            if (wristData.length === 0) {
+                vState.topTime = vState.element.duration * 0.4;
+                vState.impactTime = vState.element.duration * 0.6;
+                return;
+            }
+
+            let minY = 1.0;
+            let topTime = 0;
+            for (const item of wristData) {
+                if (item.y < minY) {
+                    minY = item.y;
+                    topTime = item.time;
+                }
+            }
+
+            let impactTime = topTime + 0.3;
+            let maxYAfterTop = 0;
+            for (const item of wristData) {
+                if (item.time > topTime && item.time < topTime + 1.2) {
+                    if (item.y > maxYAfterTop) {
+                        maxYAfterTop = item.y;
+                        impactTime = item.time;
+                    }
+                }
+            }
+
+            vState.topTime = topTime;
+            vState.impactTime = impactTime;
+        }
+
+        function checkBothAnalyzed() {
+            if (state.video1.isAnalyzed && state.video2.isAnalyzed) {
+                state.syncOffset = state.video2.impactTime - state.video1.impactTime;
+                elements.phaseControls.classList.remove('hidden');
+                jumpToPhase('impact');
+            }
+        }
+
+        function jumpToPhase(phase) {
+            pausePlayback();
+
+            let targetTime1 = 0;
+            if (phase === 'top') {
+                targetTime1 = state.video1.topTime;
+            } else if (phase === 'impact') {
+                targetTime1 = state.video1.impactTime;
+            } else if (phase === 'takeback') {
+                targetTime1 = Math.max(0, state.video1.topTime - 0.8);
+            } else if (phase === 'follow') {
+                targetTime1 = Math.min(state.video1.element.duration, state.video1.impactTime + 0.6);
+            }
+
+            state.video1.element.currentTime = targetTime1;
+            state.video2.element.currentTime = targetTime1 + state.syncOffset;
+
+            updateSliderPosition();
+            drawOverlays();
+        }
+
+        function togglePlayback() {
+            if (state.isPlaying) {
+                pausePlayback();
+            } else {
+                startPlayback();
+            }
+        }
+
+        function startPlayback() {
+            if (!state.video1.file) return;
+
+            state.isPlaying = true;
+            elements.iconPlay.classList.add('hidden');
+            elements.iconPause.classList.remove('hidden');
+
+            state.video1.element.playbackRate = state.playbackRate;
+            state.video2.element.playbackRate = state.playbackRate;
+
+            state.video1.element.play();
+            state.video2.element.play();
+
+            requestAnimationFrame(syncLoop);
+        }
+
+        function pausePlayback() {
+            state.isPlaying = false;
+            elements.iconPlay.classList.remove('hidden');
+            elements.iconPause.classList.add('hidden');
+
+            state.video1.element.pause();
+            state.video2.element.pause();
+        }
+
+        function syncLoop() {
+            if (!state.isPlaying) return;
+
+            const expectedV2Time = state.video1.element.currentTime + state.syncOffset;
+            const currentV2Time = state.video2.element.currentTime;
+
+            if (Math.abs(expectedV2Time - currentV2Time) > 0.05) {
+                state.video2.element.currentTime = expectedV2Time;
+            }
+
+            updateSliderPosition();
+            drawOverlays();
+
+            requestAnimationFrame(syncLoop);
+        }
+
+        function updateSliderPosition() {
+            const v1 = state.video1.element;
+            if (v1.duration) {
+                const percent = (v1.currentTime / v1.duration) * 100;
+                elements.syncSlider.value = percent;
+
+                const mins = Math.floor(v1.currentTime / 60);
+                const secs = Math.floor(v1.currentTime % 60);
+                const ms = Math.floor((v1.currentTime % 1) * 10);
+                elements.timeDisplay.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms}`;
+            }
+        }
+
+        elements.syncSlider.addEventListener('input', (e) => {
+            const percent = e.target.value;
+            const v1 = state.video1.element;
+            if (v1.duration) {
+                const targetTime1 = (percent / 100) * v1.duration;
+                v1.currentTime = targetTime1;
+                if (state.video2.file) {
+                    state.video2.element.currentTime = targetTime1 + state.syncOffset;
+                }
+                drawOverlays();
+            }
+        });
+
+        elements.btnPlayPause.addEventListener('click', togglePlayback);
+
+        document.getElementById('btn-takeback').addEventListener('click', () => jumpToPhase('takeback'));
+        document.getElementById('btn-top').addEventListener('click', () => jumpToPhase('top'));
+        document.getElementById('btn-impact').addEventListener('click', () => jumpToPhase('impact'));
+        document.getElementById('btn-follow').addEventListener('click', () => jumpToPhase('follow'));
+
+        document.getElementById('btn-step-prev').addEventListener('click', () => stepFrame(-0.033));
+        document.getElementById('btn-step-next').addEventListener('click', () => stepFrame(0.033));
+
+        function stepFrame(seconds) {
+            pausePlayback();
+            state.video1.element.currentTime = Math.max(0, state.video1.element.currentTime + seconds);
+            if (state.video2.file) {
+                state.video2.element.currentTime = Math.max(0, state.video2.element.currentTime + seconds);
+            }
+            updateSliderPosition();
+            drawOverlays();
+        }
+
+        document.querySelectorAll('.btn-speed').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.btn-speed').forEach(b => {
+                    b.className = "btn-speed text-xs px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-md font-medium text-slate-300 transition";
+                });
+                e.target.className = "btn-speed text-xs px-2.5 py-1 bg-emerald-600 rounded-md font-medium text-white transition";
+                state.playbackRate = parseFloat(e.target.dataset.speed);
+                state.video1.element.playbackRate = state.playbackRate;
+                state.video2.element.playbackRate = state.playbackRate;
+            });
+        });
+
+        elements.btnGrid.addEventListener('click', () => {
+            state.showGrid = !state.showGrid;
+            elements.btnGrid.classList.toggle('bg-amber-500/20', state.showGrid);
+            elements.btnGrid.classList.toggle('text-amber-300', state.showGrid);
+            drawOverlays();
+        });
+
+        function drawOverlays() {
+            [elements.overlay1, elements.overlay2].forEach(canvas => {
+                const ctx = canvas.getContext('2d');
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (state.showGrid) {
+                    ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+                    ctx.lineWidth = 1;
+
+                    ctx.beginPath();
+                    ctx.moveTo(canvas.width / 2, 0);
+                    ctx.lineTo(canvas.width / 2, canvas.height);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(0, canvas.height / 2);
+                    ctx.lineTo(canvas.width, canvas.height / 2);
+                    ctx.stroke();
+
+                    for (let x = canvas.width / 4; x < canvas.width; x += canvas.width / 4) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+                        ctx.stroke();
+                    }
+                    for (let y = canvas.height / 4; y < canvas.height; y += canvas.height / 4) {
+                        ctx.beginPath();
+                        ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                        ctx.stroke();
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('resize', drawOverlays);
+    </script>
+</body>
+</html>
